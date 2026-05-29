@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# pre-commit hook: runs cargo fmt, clippy, and fast unit tests for staged contract changes.
+# pre-commit hook:
+#   • Rust contracts — cargo fmt, clippy, and fast unit tests for staged contract changes
+#   • JS/TS apps    — prettier + eslint via lint-staged for staged frontend/backend files
 #
-# Install: run `make install-hooks` (or `just install-hooks`) from the repo root,
-#          or run `scripts/install-hooks.sh` directly.
+# Install: run `bash scripts/install-hooks.sh` from the repo root (also runs via `npm install`).
 #
-# Skip:    SKIP_CONTRACT_HOOKS=1 git commit  (emergency escape hatch — use sparingly)
+# Skip:
+#   SKIP_CONTRACT_HOOKS=1 git commit   — skip Rust contract checks
+#   SKIP_LINT_STAGED=1 git commit      — skip JS/TS format + lint
+#   SKIP_PRE_COMMIT_HOOKS=1 git commit — skip all pre-commit checks
 
 set -euo pipefail
 
@@ -22,84 +26,118 @@ warn()  { echo -e "${YELLOW}[pre-commit] ⚠${RESET} $*"; }
 fail()  { echo -e "${RED}[pre-commit] ✗${RESET} $*" >&2; }
 header(){ echo -e "\n${BOLD}${CYAN}── $* ──${RESET}"; }
 
-# ── Escape hatch ──────────────────────────────────────────────────────────────
-if [[ "${SKIP_CONTRACT_HOOKS:-0}" == "1" ]]; then
-  warn "SKIP_CONTRACT_HOOKS=1 — skipping all contract pre-commit checks."
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+FAILED=0
+
+# ── Escape hatches ────────────────────────────────────────────────────────────
+if [[ "${SKIP_PRE_COMMIT_HOOKS:-0}" == "1" ]]; then
+  warn "SKIP_PRE_COMMIT_HOOKS=1 — skipping all pre-commit checks."
   exit 0
 fi
 
-# ── Detect staged contract files ─────────────────────────────────────────────
+# ── Detect staged files ───────────────────────────────────────────────────────
 STAGED_CONTRACT_FILES=$(git diff --cached --name-only --diff-filter=ACMRT | \
   grep -E '^contracts/earn-quest/.*\.(rs|toml)$' || true)
 
-if [[ -z "$STAGED_CONTRACT_FILES" ]]; then
-  # No contract files staged — nothing to check.
+STAGED_JS_FILES=$(git diff --cached --name-only --diff-filter=ACMRT | \
+  grep -E '^(FrontEnd/my-app|BackEnd|scripts|tests)/.*\.(js|jsx|ts|tsx|mjs|cjs|json|css|scss|md|yml|yaml)$' || true)
+
+if [[ -z "$STAGED_CONTRACT_FILES" && -z "$STAGED_JS_FILES" ]]; then
   exit 0
 fi
 
-info "Staged contract file(s) detected:"
-echo "$STAGED_CONTRACT_FILES" | sed 's/^/  /'
+# ── Rust contract checks ─────────────────────────────────────────────────────
+if [[ -n "$STAGED_CONTRACT_FILES" && "${SKIP_CONTRACT_HOOKS:-0}" != "1" ]]; then
+  info "Staged contract file(s) detected:"
+  echo "$STAGED_CONTRACT_FILES" | sed 's/^/  /'
 
-CONTRACT_DIR="$(git rev-parse --show-toplevel)/contracts/earn-quest"
+  CONTRACT_DIR="$REPO_ROOT/contracts/earn-quest"
 
-# ── Tool availability checks ─────────────────────────────────────────────────
-if ! command -v cargo &>/dev/null; then
-  fail "cargo not found. Install Rust from https://rustup.rs and re-run."
-  exit 1
-fi
-
-for component in rustfmt clippy; do
-  if ! rustup component list --installed 2>/dev/null | grep -q "^${component}-"; then
-    warn "${component} not installed — attempting install via rustup..."
-    rustup component add "$component" || {
-      fail "Could not install ${component}. Run: rustup component add ${component}"
-      exit 1
-    }
+  if ! command -v cargo &>/dev/null; then
+    fail "cargo not found. Install Rust from https://rustup.rs and re-run."
+    exit 1
   fi
-done
 
-# ── Run checks ────────────────────────────────────────────────────────────────
-cd "$CONTRACT_DIR"
+  for component in rustfmt clippy; do
+    if ! rustup component list --installed 2>/dev/null | grep -q "^${component}-"; then
+      warn "${component} not installed — attempting install via rustup..."
+      rustup component add "$component" || {
+        fail "Could not install ${component}. Run: rustup component add ${component}"
+        exit 1
+      }
+    fi
+  done
 
-FAILED=0
+  cd "$CONTRACT_DIR"
 
-# 1. cargo fmt --check
-header "cargo fmt"
-info "Checking formatting..."
-if cargo fmt --all -- --check 2>&1; then
-  ok "cargo fmt passed."
-else
-  fail "Formatting issues found."
-  echo ""
-  echo -e "  Fix with: ${BOLD}cd contracts/earn-quest && cargo fmt --all${RESET}"
-  echo ""
-  FAILED=1
+  header "cargo fmt"
+  info "Checking formatting..."
+  if cargo fmt --all -- --check 2>&1; then
+    ok "cargo fmt passed."
+  else
+    fail "Formatting issues found."
+    echo ""
+    echo -e "  Fix with: ${BOLD}cd contracts/earn-quest && cargo fmt --all${RESET}"
+    echo ""
+    FAILED=1
+  fi
+
+  header "cargo clippy"
+  info "Running clippy linter..."
+  if cargo clippy --all-targets --all-features -- -D warnings 2>&1; then
+    ok "cargo clippy passed."
+  else
+    fail "Clippy reported warnings or errors."
+    echo ""
+    echo -e "  Fix with: ${BOLD}cd contracts/earn-quest && cargo clippy --all-targets --all-features -- -D warnings${RESET}"
+    echo ""
+    FAILED=1
+  fi
+
+  header "cargo test --lib"
+  info "Running fast unit tests..."
+  if cargo test --lib 2>&1; then
+    ok "Fast tests passed."
+  else
+    fail "One or more unit tests failed."
+    echo ""
+    echo -e "  Debug with: ${BOLD}cd contracts/earn-quest && cargo test --lib -- --nocapture${RESET}"
+    echo ""
+    FAILED=1
+  fi
+elif [[ -n "$STAGED_CONTRACT_FILES" ]]; then
+  warn "SKIP_CONTRACT_HOOKS=1 — skipping contract pre-commit checks."
 fi
 
-# 2. cargo clippy
-header "cargo clippy"
-info "Running clippy linter..."
-if cargo clippy --all-targets --all-features -- -D warnings 2>&1; then
-  ok "cargo clippy passed."
-else
-  fail "Clippy reported warnings or errors."
-  echo ""
-  echo -e "  Fix with: ${BOLD}cd contracts/earn-quest && cargo clippy --all-targets --all-features -- -D warnings${RESET}"
-  echo ""
-  FAILED=1
-fi
+# ── JS/TS format + lint via lint-staged ───────────────────────────────────────
+if [[ -n "$STAGED_JS_FILES" && "${SKIP_LINT_STAGED:-0}" != "1" ]]; then
+  cd "$REPO_ROOT"
 
-# 3. Fast tests (lib unit tests only — excludes the heavier integration test suite)
-header "cargo test --lib"
-info "Running fast unit tests..."
-if cargo test --lib 2>&1; then
-  ok "Fast tests passed."
-else
-  fail "One or more unit tests failed."
-  echo ""
-  echo -e "  Debug with: ${BOLD}cd contracts/earn-quest && cargo test --lib -- --nocapture${RESET}"
-  echo ""
-  FAILED=1
+  if ! command -v node &>/dev/null; then
+    fail "node not found. Install Node.js >= 18 and re-run."
+    exit 1
+  fi
+
+  if [[ ! -d "$REPO_ROOT/node_modules/lint-staged" ]]; then
+    fail "Root dependencies not installed. Run: npm install"
+    exit 1
+  fi
+
+  header "lint-staged"
+  info "Formatting and linting staged JS/TS files..."
+  echo "$STAGED_JS_FILES" | sed 's/^/  /'
+
+  if npx lint-staged 2>&1; then
+    ok "lint-staged passed."
+  else
+    fail "lint-staged reported formatting or lint errors."
+    echo ""
+    echo -e "  Fix manually, or run: ${BOLD}npm run lint-staged${RESET}"
+    echo ""
+    FAILED=1
+  fi
+elif [[ -n "$STAGED_JS_FILES" ]]; then
+  warn "SKIP_LINT_STAGED=1 — skipping JS/TS format + lint."
 fi
 
 # ── Result ────────────────────────────────────────────────────────────────────
@@ -107,10 +145,10 @@ echo ""
 if [[ "$FAILED" -ne 0 ]]; then
   fail "Pre-commit checks FAILED. Commit rejected."
   echo ""
-  echo -e "  To bypass in an emergency: ${BOLD}SKIP_CONTRACT_HOOKS=1 git commit${RESET}"
+  echo -e "  To bypass in an emergency: ${BOLD}SKIP_PRE_COMMIT_HOOKS=1 git commit${RESET}"
   echo ""
   exit 1
 fi
 
-ok "All contract pre-commit checks passed."
+ok "All pre-commit checks passed."
 exit 0

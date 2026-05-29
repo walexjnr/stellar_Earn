@@ -88,6 +88,8 @@ if [[ "$INSTALLED" -eq 0 ]]; then
 else
   ok "Installed $INSTALLED hook(s). They will run automatically on 'git commit'."
   echo ""
-  echo -e "  To skip in an emergency: ${BOLD}SKIP_CONTRACT_HOOKS=1 git commit${RESET}"
+  echo -e "  To skip contract checks: ${BOLD}SKIP_CONTRACT_HOOKS=1 git commit${RESET}"
+  echo -e "  To skip JS/TS checks:    ${BOLD}SKIP_LINT_STAGED=1 git commit${RESET}"
+  echo -e "  To skip all checks:      ${BOLD}SKIP_PRE_COMMIT_HOOKS=1 git commit${RESET}"
   echo -e "  To uninstall:            ${BOLD}bash scripts/install-hooks.sh --remove${RESET}"
 fi
