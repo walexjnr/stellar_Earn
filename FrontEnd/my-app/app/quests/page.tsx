@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Suspense, useMemo } from 'react';
+import { useState, Suspense, useMemo, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -13,6 +13,7 @@ import { QuestStatus, QuestDifficulty } from '@/lib/types/quest';
 import type { Quest } from '@/lib/types/quest';
 import LazyLoad from '@/components/ui/LazyLoad';
 import { ComponentErrorBoundary } from '@/components/error/ErrorBoundary';
+import { Sidebar } from '@/components/layout/Sidebar';
 
 function QuestsContent() {
   const searchParams = useSearchParams();
@@ -91,51 +92,72 @@ function QuestsContent() {
   );
 
   // Update URL when filters change
-  const updateURL = (updates: Record<string, string | null>) => {
-    const params = new URLSearchParams(searchParams.toString());
-    Object.entries(updates).forEach(([key, value]) => {
-      if (value) {
-        params.set(key, value);
-      } else {
-        params.delete(key);
-      }
-    });
-    params.set('page', '1'); // Reset to first page when filters change
-    router.push(`/quests?${params.toString()}`);
-  };
+  const updateURL = useCallback(
+    (updates: Record<string, string | null>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      Object.entries(updates).forEach(([key, value]) => {
+        if (value) {
+          params.set(key, value);
+        } else {
+          params.delete(key);
+        }
+      });
+      params.set('page', '1'); // Reset to first page when filters change
+      router.push(`/quests?${params.toString()}`);
+    },
+    [router, searchParams]
+  );
 
-  const handleStatusChange = (status: QuestStatus | undefined) => {
-    updateURL({ status: status || null });
-  };
+  const handleStatusChange = useCallback(
+    (status: QuestStatus | undefined) => {
+      updateURL({ status: status || null });
+    },
+    [updateURL]
+  );
 
-  const handleDifficultyChange = (difficulty: QuestDifficulty | undefined) => {
-    updateURL({ difficulty: difficulty || null });
-  };
+  const handleDifficultyChange = useCallback(
+    (difficulty: QuestDifficulty | undefined) => {
+      updateURL({ difficulty: difficulty || null });
+    },
+    [updateURL]
+  );
 
-  const handleCategoryChange = (category: string | undefined) => {
-    updateURL({ category: category || null });
-  };
+  const handleCategoryChange = useCallback(
+    (category: string | undefined) => {
+      updateURL({ category: category || null });
+    },
+    [updateURL]
+  );
 
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-    updateURL({ search: query || null });
-  };
+  const handleSearch = useCallback(
+    (query: string) => {
+      setSearchQuery(query);
+      updateURL({ search: query || null });
+    },
+    [updateURL]
+  );
 
-  const handleClearFilters = () => {
+  const handleClearFilters = useCallback(() => {
     setSearchQuery('');
     router.push('/quests');
-  };
+  }, [router]);
 
   // Update URL when page changes
-  const handlePageChange = (page: number) => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('page', page.toString());
-    router.push(`/quests?${params.toString()}`);
-  };
+  const handlePageChange = useCallback(
+    (page: number) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('page', page.toString());
+      router.push(`/quests?${params.toString()}`);
+    },
+    [router, searchParams]
+  );
 
-  const handleQuestClick = (quest: Quest) => {
-    router.push(`/quests/${quest.id}`);
-  };
+  const handleQuestClick = useCallback(
+    (quest: Quest) => {
+      router.push(`/quests/${quest.id}`);
+    },
+    [router]
+  );
 
   return (
     <AppLayout>

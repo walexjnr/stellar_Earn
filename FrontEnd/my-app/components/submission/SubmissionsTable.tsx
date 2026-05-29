@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import { StatusBadge } from './StatusBadge';
 import type { Submission } from '@/lib/types/submission';
 import { formatShortDate } from '@/lib/utils/date';
@@ -22,7 +23,7 @@ function getProofDisplay(proof: Record<string, unknown>): string {
   return 'View';
 }
 
-export function SubmissionsTable({
+export const SubmissionsTable = memo(function SubmissionsTable({
   submissions,
   onSubmissionClick,
 }: SubmissionsTableProps) {
@@ -94,7 +95,7 @@ export function SubmissionsTable({
                 </td>
                 <td
                   className={`whitespace-nowrap px-6 py-4 text-sm font-medium ${
-                    submission.quest.rewardAmount > 0
+                    Number(submission.quest.rewardAmount) > 0
                       ? 'text-orange-600 dark:text-orange-400'
                       : 'text-zinc-500 dark:text-zinc-400'
                   }`}
@@ -130,4 +131,6 @@ export function SubmissionsTable({
       </table>
     </div>
   );
-}
+});
+
+SubmissionsTable.displayName = 'SubmissionsTable';

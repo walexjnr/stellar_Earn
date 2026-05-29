@@ -190,7 +190,7 @@ export function SubmissionDetail({
             </div>
 
             {/* Rejection Reason */}
-            {submission.status === 'REJECTED' && (
+            {submission.status === 'Rejected' && (
               <div className="rounded-lg bg-red-50 p-4 dark:bg-red-900/20">
                 <h3 className="text-sm font-semibold text-red-900 dark:text-red-400 mb-1">
                   Rejection Reason
@@ -210,7 +210,7 @@ export function SubmissionDetail({
               >
                 Close
               </button>
-              {submission.status === 'APPROVED' && (
+              {submission.status === 'Approved' && (
                 <button
                   onClick={() => {
                     // TODO: Implement claim reward functionality
