@@ -14,6 +14,7 @@ import { RejectSubmissionDto } from './dto/reject-submission.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Quest } from '../quests/entities/quest.entity';
 import { User } from '../users/entities/user.entity';
+import { MetricsService } from '../../common/services/metrics.service';
 
 interface QuestVerifier {
   id: string;
@@ -38,6 +39,7 @@ export class SubmissionsService {
     // private stellarService: StellarService,
     private notificationsService: NotificationsService,
     private eventEmitter: EventEmitter2,
+    private metricsService: MetricsService,
   ) { }
 
   /**
@@ -68,6 +70,10 @@ export class SubmissionsService {
     this.validateStatusTransition(submission.status, 'APPROVED');
 
     const approvedAt = new Date();
+    
+    // Calculate review duration for SLA tracking
+    const reviewDurationSeconds = (approvedAt.getTime() - submission.createdAt.getTime()) / 1000;
+    
     const updateResult = await this.submissionsRepository
       .createQueryBuilder()
       .update(Submission)
@@ -150,6 +156,14 @@ export class SubmissionsService {
       approvedAt,
     });
 
+    // Emit SLA metrics for submission review time
+    this.metricsService.incrementCounter('submission_review_total');
+    this.metricsService.incrementCounter('submission_approval_total');
+    this.metricsService.observeHistogram('submission_review_duration_seconds', reviewDurationSeconds, {
+      status: 'approved',
+      quest_id: submission.questId,
+    });
+
     return submission;
   }
 
@@ -185,6 +199,10 @@ export class SubmissionsService {
     }
 
     const rejectedAt = new Date();
+    
+    // Calculate review duration for SLA tracking
+    const reviewDurationSeconds = (rejectedAt.getTime() - submission.createdAt.getTime()) / 1000;
+    
     const updateResult = await this.submissionsRepository
       .createQueryBuilder()
       .update(Submission)
@@ -229,6 +247,14 @@ export class SubmissionsService {
         rejectDto.reason,
       ),
     );
+
+    // Emit SLA metrics for submission review time
+    this.metricsService.incrementCounter('submission_review_total');
+    this.metricsService.incrementCounter('submission_rejection_total');
+    this.metricsService.observeHistogram('submission_review_duration_seconds', reviewDurationSeconds, {
+      status: 'rejected',
+      quest_id: submission.questId,
+    });
 
     return submission;
   }
