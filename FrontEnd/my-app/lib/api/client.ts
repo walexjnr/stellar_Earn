@@ -264,6 +264,14 @@ apiClient.interceptors.response.use(
         processQueue(null, 'refreshed');
         return apiClient(originalRequest);
       } catch (refreshError) {
+        tokenManager.clearTokens();
+        if (isClient()) {
+          window.dispatchEvent(
+            new CustomEvent('session-expired', {
+              detail: { reason: 'token_refresh_failed' },
+            })
+          );
+        }
         processQueue(refreshError, null);
         return Promise.reject(refreshError);
       } finally {
