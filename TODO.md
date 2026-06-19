@@ -1,12 +1,11 @@
-# TODO - Strict TSConfig layering (src vs test)
+# TODO
 
-- [x] Inspect current TypeScript/Jest configuration in BackEnd
-- [x] Create `BackEnd/tsconfig.src.json` (src layer)
-- [x] Create `BackEnd/tsconfig.test.json` (test layer with moderate strictness)
-- [x] Update `BackEnd/tsconfig.build.json` to extend `tsconfig.src.json`
-- [x] Update `BackEnd/test/jest-integration.json` to use `./tsconfig.test.json`
-- [x] Update `BackEnd/test/jest-e2e.json` to use `./tsconfig.test.json`
-- [ ] Run unit/integration/e2e tests to validate type errors (environment setup needed: ensure `node`/`npm` are available)
-- [ ] Fix any strict type errors found in tests (if any)
-- [ ] Update documentation (testing guide) describing the new tsconfig layering
+## Notifications email/in-app templates (typed + tests)
+
+- [ ] Implement `BackEnd/src/modules/notifications/template/notification.interface.ts` with typed data contracts + shared render result types.
+- [ ] Implement `quest-update.template.ts` using `EmailTemplateEngine` for HTML rendering.
+- [ ] Implement `submission-status.template.ts` using `EmailTemplateEngine` for HTML rendering.
+- [ ] Implement `system.template.ts` using `EmailTemplateEngine` for HTML rendering.
+- [ ] Add unit tests for all templates in `BackEnd/test/notifications/templates/notification.templates.spec.ts`.
+- [ ] Run backend unit tests for the new suite and fix any TypeScript/Jest issues.
 
