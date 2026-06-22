@@ -1,8 +1,8 @@
 #![no_std]
 
 mod admin;
-pub mod errors;
 mod dispute;
+pub mod errors;
 mod escrow;
 mod events;
 mod init;
@@ -27,14 +27,13 @@ use crate::errors::Error;
 use crate::storage::{get_badge_type, list_badge_types};
 
 pub use crate::types::{
-    AggregatedPrice, Badge, BadgeType, BatchApprovalInput, BatchQuestInput, CreatorStats, Dispute,
-    DisputeStatus, EscrowInfo, OracleConfig, PlatformStats, PriceData, PriceFeedRequest, Quest,
-    QuestMetadata, QuestStatus, Role, Submission, SubmissionStatus, UserBadges, UserCore,
-    UserStats, Commitment, VerifierStake,
+    AggregatedPrice, Badge, BadgeType, BatchApprovalInput, BatchQuestInput, Commitment,
+    CreatorStats, Dispute, DisputeStatus, EscrowInfo, OracleConfig, PlatformStats, PriceData,
+    PriceFeedRequest, Quest, QuestMetadata, QuestStatus, Role, Submission, SubmissionStatus,
+    UserBadges, UserCore, UserStats, VerifierStake,
 };
 
-
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Symbol, U256, Vec};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Symbol, Vec, U256};
 
 #[contract]
 pub struct EarnQuestContract;
@@ -63,23 +62,8 @@ impl EarnQuestContract {
         storage::grant_role(&env, &admin, &Role::OracleAdmin);
         storage::grant_role(&env, &admin, &Role::StatsAdmin);
         storage::grant_role(&env, &admin, &Role::BadgeAdmin);
-        reputation::seed_default_badge_types(&env, &admin);
-        // Seed default level thresholds (levels 2..5)
-        let mut default_thresholds: Vec<u64> = Vec::new(&env);
-        default_thresholds.push_back(300u64);
-        default_thresholds.push_back(600u64);
-        default_thresholds.push_back(1000u64);
-        default_thresholds.push_back(1500u64);
-        storage::set_level_thresholds(&env, &default_thresholds);
+        reputation::seed_default_badge_types(&env, &admin).expect("seed default badge types");
         storage::mark_initialized(&env);
-    }
-
-    /// Set configurable level thresholds (SuperAdmin only).
-    pub fn set_level_thresholds(env: Env, caller: Address, thresholds: Vec<u64>) -> Result<(), Error> {
-        security::require_not_paused(&env)?;
-        admin::require_role(&env, &caller, Role::SuperAdmin)?;
-        storage::set_level_thresholds(&env, &thresholds);
-        Ok(())
     }
 
     /// Authorizes a contract upgrade (SuperAdmin only).
@@ -177,7 +161,12 @@ impl EarnQuestContract {
     /// * `caller` - The address of the caller.
     /// * `address` - The address receiving the role.
     /// * `role` - The role to grant.
-    pub fn grant_role(env: Env, caller: Address, address: Address, role: Role) -> Result<(), Error> {
+    pub fn grant_role(
+        env: Env,
+        caller: Address,
+        address: Address,
+        role: Role,
+    ) -> Result<(), Error> {
         security::require_not_paused(&env)?;
         admin::grant_role(&env, &caller, &address, role)
     }
@@ -190,7 +179,12 @@ impl EarnQuestContract {
     /// * `caller` - The address of the caller.
     /// * `address` - The address to revoke the role from.
     /// * `role` - The role to revoke.
-    pub fn revoke_role(env: Env, caller: Address, address: Address, role: Role) -> Result<(), Error> {
+    pub fn revoke_role(
+        env: Env,
+        caller: Address,
+        address: Address,
+        role: Role,
+    ) -> Result<(), Error> {
         security::require_not_paused(&env)?;
         admin::revoke_role(&env, &caller, &address, role)
     }
@@ -333,10 +327,7 @@ impl EarnQuestContract {
     ) -> Result<(), Error> {
         security::require_not_paused(&env)?;
         creator.require_auth();
-        validation::validate_array_length(
-            quests.len() as u32,
-            validation::MAX_BATCH_QUEST_REGISTRATION,
-        )?;
+        validation::validate_array_length(quests.len(), validation::MAX_BATCH_QUEST_REGISTRATION)?;
         quest::register_quests_batch(&env, &creator, &quests)
     }
 
@@ -595,12 +586,7 @@ impl EarnQuestContract {
     /// * `admin` - The address of the admin granting the badge.
     /// * `user` - The address of the user receiving the badge.
     /// * `badge` - The badge to be granted.
-    pub fn grant_badge(
-        env: Env,
-        admin: Address,
-        user: Address,
-        badge: Badge,
-    ) -> Result<(), Error> {
+    pub fn grant_badge(env: Env, admin: Address, user: Address, badge: Badge) -> Result<(), Error> {
         security::require_not_paused(&env)?;
         let user_badges = storage::get_user_badges(&env, &user);
         validation::validate_badge_count(user_badges.badges.len())?;
@@ -692,24 +678,6 @@ impl EarnQuestContract {
         dispute::resolve_dispute(&env, quest_id, initiator, arbitrator, upheld, slash_bps)
     }
 
-    /// Schedule a global arbitrator rotation (SuperAdmin only). Creates a 24h timelock.
-    pub fn schedule_arbitrator_change(env: Env, caller: Address, new_arbitrator: Address) -> Result<(), Error> {
-        security::require_not_paused(&env)?;
-        dispute::schedule_arbitrator_change(&env, caller, new_arbitrator)
-    }
-
-    /// Finalize a scheduled arbitrator rotation after the timelock (SuperAdmin only).
-    pub fn finalize_arbitrator_change(env: Env, caller: Address) -> Result<(), Error> {
-        security::require_not_paused(&env)?;
-        dispute::finalize_arbitrator_change(&env, caller)
-    }
-
-    /// Returns the current global arbitrator, if set.
-    pub fn get_arbitrator(env: Env) -> Option<Address> {
-        storage::get_arbitrator(&env)
-    }
-
-
     /// Withdraws a pending dispute (Initiator only).
     ///
     /// # Arguments
@@ -717,7 +685,6 @@ impl EarnQuestContract {
     /// * `env` - The environment.
     /// * `quest_id` - The symbol of the quest.
     /// * `initiator` - The address of the initiator.
-
     pub fn appeal_dispute(
         env: Env,
         quest_id: Symbol,
@@ -729,12 +696,7 @@ impl EarnQuestContract {
     }
 
     /// Withdraw a pending dispute (only by initiator).
-
-    pub fn withdraw_dispute(
-        env: Env,
-        quest_id: Symbol,
-        initiator: Address,
-    ) -> Result<(), Error> {
+    pub fn withdraw_dispute(env: Env, quest_id: Symbol, initiator: Address) -> Result<(), Error> {
         security::require_not_paused(&env)?;
         dispute::withdraw_dispute(&env, quest_id, initiator)
     }
@@ -932,11 +894,7 @@ impl EarnQuestContract {
     /// * `env` - The environment.
     /// * `quest_id` - The symbol of the quest.
     /// * `creator` - The address of the quest creator.
-    pub fn withdraw_unclaimed(
-        env: Env,
-        quest_id: Symbol,
-        creator: Address,
-    ) -> Result<i128, Error> {
+    pub fn withdraw_unclaimed(env: Env, quest_id: Symbol, creator: Address) -> Result<i128, Error> {
         security::require_not_paused(&env)?;
         security::nonreentrant_enter(&env)?;
         creator.require_auth();
@@ -1053,7 +1011,11 @@ impl EarnQuestContract {
     /// # Returns
     ///
     /// A `Result<Submission, Error>` containing the submission details.
-    pub fn get_submission(env: Env, quest_id: Symbol, submitter: Address) -> Result<Submission, Error> {
+    pub fn get_submission(
+        env: Env,
+        quest_id: Symbol,
+        submitter: Address,
+    ) -> Result<Submission, Error> {
         storage::get_submission(&env, &quest_id, &submitter)
     }
 
@@ -1174,31 +1136,23 @@ impl EarnQuestContract {
     //================================================================================
 
     /// Adds a new price oracle configuration (OracleAdmin only).
-    pub fn add_oracle(
-        env: Env,
-        caller: Address,
-        oracle_config: OracleConfig,
-    ) -> Result<(), Error> {
+    pub fn add_oracle(env: Env, caller: Address, oracle_config: OracleConfig) -> Result<(), Error> {
         security::require_not_paused(&env)?;
         admin::require_role(&env, &caller, Role::OracleAdmin)?;
-        
+
         oracle::Oracle::validate_config(&oracle_config)?;
         storage::add_oracle_config(&env, &oracle_config)?;
-        
+
         Ok(())
     }
 
     /// Removes a price oracle configuration (OracleAdmin only).
-    pub fn remove_oracle(
-        env: Env,
-        caller: Address,
-        oracle_address: Address,
-    ) -> Result<(), Error> {
+    pub fn remove_oracle(env: Env, caller: Address, oracle_address: Address) -> Result<(), Error> {
         security::require_not_paused(&env)?;
         admin::require_role(&env, &caller, Role::OracleAdmin)?;
-        
+
         storage::remove_oracle_config(&env, &oracle_address)?;
-        
+
         Ok(())
     }
 
@@ -1210,10 +1164,10 @@ impl EarnQuestContract {
     ) -> Result<(), Error> {
         security::require_not_paused(&env)?;
         admin::require_role(&env, &caller, Role::OracleAdmin)?;
-        
+
         oracle::Oracle::validate_config(&oracle_config)?;
         storage::update_oracle_config(&env, &oracle_config)?;
-        
+
         Ok(())
     }
 
@@ -1237,7 +1191,7 @@ impl EarnQuestContract {
             quote_asset,
             max_age_seconds,
         };
-        
+
         oracle::Oracle::get_aggregated_price(&env, &oracle_configs, &request)
     }
 
@@ -1263,7 +1217,7 @@ impl EarnQuestContract {
             quote_asset,
             max_age_seconds,
         };
-        
+
         oracle::Oracle::get_price(&env, &oracle_config, &request)
     }
 
@@ -1296,13 +1250,13 @@ impl EarnQuestContract {
         }
 
         let price = Self::get_price(env.clone(), from_asset, to_asset, 300)?; // 5 minutes max age
-        
+
         // Convert amount using price (assuming 7 decimals)
         let amount_u256 = U256::from_u128(&env, amount as u128);
         let converted_amount = amount_u256
             .mul(&price.weighted_price)
             .div(&U256::from_u32(&env, 10_000_000)); // Adjust for 7 decimals
-        
+
         // Convert back to i128 safely
         let converted_value = converted_amount.to_u128().ok_or(Error::AmountTooLarge)? as i128;
         Ok(converted_value)
@@ -1325,15 +1279,15 @@ impl EarnQuestContract {
         _max_deviation_percent: u32,
     ) -> Result<(), Error> {
         let price = Self::get_price(env, reward_asset, reference_asset, 300)?;
-        
+
         // Check if price confidence is sufficient
         if price.confidence_score < 80 {
             return Err(Error::LowOracleConfidence);
         }
-        
+
         // Additional validation logic could be added here
         // For example, checking against historical prices, volatility limits, etc.
-        
+
         Ok(())
     }
 
@@ -1345,7 +1299,13 @@ impl EarnQuestContract {
         token::allowance(env, from, spender)
     }
 
-    pub fn approve(env: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
+    pub fn approve(
+        env: Env,
+        from: Address,
+        spender: Address,
+        amount: i128,
+        expiration_ledger: u32,
+    ) {
         token::approve(env, from, spender, amount, expiration_ledger)
     }
 
@@ -1387,7 +1347,13 @@ impl EarnQuestContract {
         Ok(())
     }
 
-    pub fn set_token_metadata(env: Env, caller: Address, name: String, symbol: String, decimals: u32) -> Result<(), Error> {
+    pub fn set_token_metadata(
+        env: Env,
+        caller: Address,
+        name: String,
+        symbol: String,
+        decimals: u32,
+    ) -> Result<(), Error> {
         admin::require_role(&env, &caller, Role::Admin)?;
         token::set_metadata(&env, name, symbol, decimals);
         Ok(())
@@ -1421,7 +1387,11 @@ impl EarnQuestContract {
     }
 
     /// Removes an address from the creator whitelist (SuperAdmin only).
-    pub fn remove_creator_whitelist(env: Env, caller: Address, address: Address) -> Result<(), Error> {
+    pub fn remove_creator_whitelist(
+        env: Env,
+        caller: Address,
+        address: Address,
+    ) -> Result<(), Error> {
         admin::remove_creator_whitelist(&env, &caller, &address)
     }
 

@@ -1,12 +1,12 @@
 use crate::errors::Error;
 use crate::types::{
-    BadgeType, CreatorStats, EscrowBalances, EscrowInfo, EscrowMeta, OracleConfig, PlatformStats, Quest, 
-    QuestMetadata, QuestMetadataCore, QuestMetadataExtended, QuestStatus, Role, Submission, 
-    SubmissionStatus, UserBadges, UserCore, Commitment, VerifierStake
+    BadgeType, Commitment, CreatorStats, EscrowBalances, EscrowInfo, EscrowMeta, OracleConfig,
+    PlatformStats, Quest, QuestMetadata, QuestMetadataCore, QuestMetadataExtended, QuestStatus,
+    Role, Submission, SubmissionStatus, UserBadges, UserCore, VerifierStake,
 };
 
 use crate::validation;
-use soroban_sdk::{contracttype, Address, Env, Symbol, Vec, String};
+use soroban_sdk::{contracttype, Address, Env, String, Symbol, Vec};
 
 /// Storage key definitions for the contract's persistent data.
 ///
@@ -99,16 +99,8 @@ pub enum DataKey {
     MinCreatorLevel,
     /// Addresses whitelisted to bypass the creator level requirement
     CreatorWhitelist(Address),
-    /// Level thresholds for reputation levels (Vec<u64>, thresholds for lvl2..N)
-    LevelThresholds,
     /// Pending clawback record keyed by (quest_id, recipient)
     ClawbackPending(Symbol, Address),
-    /// Current global arbitrator address
-    Arbitrator,
-    /// Pending arbitrator address (scheduled change)
-    ArbitratorPending,
-    /// Scheduled time (ledger timestamp) when pending arbitrator can be applied
-    ArbitratorScheduledTime,
 }
 
 //================================================================================
@@ -540,18 +532,13 @@ pub fn add_user_xp(env: &Env, user: &Address, xp_delta: u64) -> Result<UserCore,
     let mut stats = get_user_stats(env, user)?;
     stats.xp = stats.xp.saturating_add(xp_delta);
 
-    // Recalculate level using configurable thresholds stored in contract storage.
-    let thresholds = get_level_thresholds(env);
-    let mut level = 1u32;
-    let mut i = 0u32;
-    while i < thresholds.len() {
-        let th = thresholds.get(i).unwrap();
-        if stats.xp >= th {
-            level = i + 2; // thresholds[0] -> level 2
-        }
-        i += 1;
-    }
-    stats.level = level;
+    stats.level = match stats.xp {
+        x if x >= 1500 => 5,
+        x if x >= 1000 => 4,
+        x if x >= 600 => 3,
+        x if x >= 300 => 2,
+        _ => 1,
+    };
 
     set_user_stats(env, user, &stats);
     Ok(stats)
@@ -585,7 +572,7 @@ pub fn add_user_xp(env: &Env, user: &Address, xp_delta: u64) -> Result<UserCore,
 /// * Initializing stats before first quest completion
 /// * Avoiding error handling for optional stats queries
 pub fn get_user_stats_or_default(env: &Env, user: &Address) -> UserCore {
-    get_user_stats(env, user).unwrap_or_else(|_| UserCore {
+    get_user_stats(env, user).unwrap_or(UserCore {
         xp: 0,
         level: 1,
         quests_completed: 0,
@@ -693,9 +680,10 @@ pub fn get_oracle_config(env: &Env, oracle_address: &Address) -> Result<OracleCo
 }
 
 pub fn set_oracle_config(env: &Env, config: &OracleConfig) {
-    env.storage()
-        .instance()
-        .set(&DataKey::OracleConfig(config.oracle_address.clone()), config);
+    env.storage().instance().set(
+        &DataKey::OracleConfig(config.oracle_address.clone()),
+        config,
+    );
 }
 
 pub fn get_oracle_addresses(env: &Env) -> Vec<Address> {
@@ -706,7 +694,9 @@ pub fn get_oracle_addresses(env: &Env) -> Vec<Address> {
 }
 
 pub fn set_oracle_addresses(env: &Env, addrs: &Vec<Address>) {
-    env.storage().instance().set(&DataKey::OracleAddresses, addrs);
+    env.storage()
+        .instance()
+        .set(&DataKey::OracleAddresses, addrs);
 }
 
 pub fn add_oracle_config(env: &Env, config: &OracleConfig) -> Result<(), Error> {
@@ -771,7 +761,11 @@ pub fn get_active_oracle_configs(env: &Env) -> Vec<OracleConfig> {
 }
 
 pub fn is_super_admin(env: &Env, address: &Address) -> bool {
-    if let Some(a) = env.storage().instance().get::<_, Address>(&DataKey::ContractAdmin) {
+    if let Some(a) = env
+        .storage()
+        .instance()
+        .get::<_, Address>(&DataKey::ContractAdmin)
+    {
         if a == *address {
             return true;
         }
@@ -907,46 +901,6 @@ pub fn get_scheduled_unpause_time(env: &Env) -> Option<u64> {
     env.storage().instance().get(&DataKey::ScheduledUnpauseTime)
 }
 
-//================================================================================
-// Arbitrator Storage Helpers
-//================================================================================
-
-pub fn get_arbitrator(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&DataKey::Arbitrator)
-}
-
-pub fn set_arbitrator(env: &Env, addr: &Address) {
-    env.storage().instance().set(&DataKey::Arbitrator, addr);
-}
-
-pub fn get_pending_arbitrator(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&DataKey::ArbitratorPending)
-}
-
-pub fn set_pending_arbitrator(env: &Env, addr: &Address) {
-    env.storage()
-        .instance()
-        .set(&DataKey::ArbitratorPending, addr);
-}
-
-pub fn clear_pending_arbitrator(env: &Env) {
-    env.storage().instance().remove(&DataKey::ArbitratorPending);
-}
-
-pub fn set_scheduled_arbitrator_time(env: &Env, ts: u64) {
-    env.storage()
-        .instance()
-        .set(&DataKey::ArbitratorScheduledTime, &ts);
-}
-
-pub fn get_scheduled_arbitrator_time(env: &Env) -> Option<u64> {
-    env.storage().instance().get(&DataKey::ArbitratorScheduledTime)
-}
-
-pub fn clear_scheduled_arbitrator_time(env: &Env) {
-    env.storage().instance().remove(&DataKey::ArbitratorScheduledTime);
-}
-
 pub fn clear_unpause_approvals(env: &Env) {
     // Increment the round ID so previous approvals are effectively cleared/invalidated
     inc_unpause_round(env);
@@ -1055,7 +1009,11 @@ pub fn has_commitment(env: &Env, quest_id: &Symbol, submitter: &Address) -> bool
         .has(&DataKey::Commitment(quest_id.clone(), submitter.clone()))
 }
 
-pub fn get_commitment(env: &Env, quest_id: &Symbol, submitter: &Address) -> Result<Commitment, Error> {
+pub fn get_commitment(
+    env: &Env,
+    quest_id: &Symbol,
+    submitter: &Address,
+) -> Result<Commitment, Error> {
     env.storage()
         .instance()
         .get(&DataKey::Commitment(quest_id.clone(), submitter.clone()))
@@ -1063,9 +1021,10 @@ pub fn get_commitment(env: &Env, quest_id: &Symbol, submitter: &Address) -> Resu
 }
 
 pub fn set_commitment(env: &Env, quest_id: &Symbol, submitter: &Address, commitment: &Commitment) {
-    env.storage()
-        .instance()
-        .set(&DataKey::Commitment(quest_id.clone(), submitter.clone()), commitment);
+    env.storage().instance().set(
+        &DataKey::Commitment(quest_id.clone(), submitter.clone()),
+        commitment,
+    );
 }
 
 pub fn delete_commitment(env: &Env, quest_id: &Symbol, submitter: &Address) {
@@ -1163,23 +1122,28 @@ pub fn add_quest_id(env: &Env, id: &Symbol) -> Result<(), Error> {
 pub fn get_platform_stats(env: &Env) -> PlatformStats {
     PlatformStats {
         total_quests_created: env
-            .storage().instance()
+            .storage()
+            .instance()
             .get(&DataKey::PlatformQuestsCreated)
             .unwrap_or(0u64),
         total_submissions: env
-            .storage().instance()
+            .storage()
+            .instance()
             .get(&DataKey::PlatformSubmissions)
             .unwrap_or(0u64),
         total_rewards_distributed: env
-            .storage().instance()
+            .storage()
+            .instance()
             .get(&DataKey::PlatformRewardsDistributed)
             .unwrap_or(0u128),
         total_active_users: env
-            .storage().instance()
+            .storage()
+            .instance()
             .get(&DataKey::PlatformActiveUsers)
             .unwrap_or(0u64),
         total_rewards_claimed: env
-            .storage().instance()
+            .storage()
+            .instance()
             .get(&DataKey::PlatformRewardsClaimed)
             .unwrap_or(0u64),
     }
@@ -1187,35 +1151,72 @@ pub fn get_platform_stats(env: &Env) -> PlatformStats {
 
 /// Write all counters at once (used by reset_platform_stats and migration).
 pub fn set_platform_stats(env: &Env, stats: &PlatformStats) {
-    env.storage().instance().set(&DataKey::PlatformQuestsCreated,     &stats.total_quests_created);
-    env.storage().instance().set(&DataKey::PlatformSubmissions,       &stats.total_submissions);
-    env.storage().instance().set(&DataKey::PlatformRewardsDistributed,&stats.total_rewards_distributed);
-    env.storage().instance().set(&DataKey::PlatformActiveUsers,       &stats.total_active_users);
-    env.storage().instance().set(&DataKey::PlatformRewardsClaimed,    &stats.total_rewards_claimed);
+    env.storage()
+        .instance()
+        .set(&DataKey::PlatformQuestsCreated, &stats.total_quests_created);
+    env.storage()
+        .instance()
+        .set(&DataKey::PlatformSubmissions, &stats.total_submissions);
+    env.storage().instance().set(
+        &DataKey::PlatformRewardsDistributed,
+        &stats.total_rewards_distributed,
+    );
+    env.storage()
+        .instance()
+        .set(&DataKey::PlatformActiveUsers, &stats.total_active_users);
+    env.storage().instance().set(
+        &DataKey::PlatformRewardsClaimed,
+        &stats.total_rewards_claimed,
+    );
 }
 
 /// Increment only the quests-created counter (1 read + 1 write instead of 5+5).
 pub fn inc_platform_quests_created(env: &Env) {
-    let v: u64 = env.storage().instance().get(&DataKey::PlatformQuestsCreated).unwrap_or(0);
-    env.storage().instance().set(&DataKey::PlatformQuestsCreated, &v.saturating_add(1));
+    let v: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::PlatformQuestsCreated)
+        .unwrap_or(0);
+    env.storage()
+        .instance()
+        .set(&DataKey::PlatformQuestsCreated, &v.saturating_add(1));
 }
 
 /// Increment only the submissions counter.
 pub fn inc_platform_submissions(env: &Env) {
-    let v: u64 = env.storage().instance().get(&DataKey::PlatformSubmissions).unwrap_or(0);
-    env.storage().instance().set(&DataKey::PlatformSubmissions, &v.saturating_add(1));
+    let v: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::PlatformSubmissions)
+        .unwrap_or(0);
+    env.storage()
+        .instance()
+        .set(&DataKey::PlatformSubmissions, &v.saturating_add(1));
 }
 
 /// Increment only the rewards-claimed counter.
 pub fn inc_platform_rewards_claimed(env: &Env) {
-    let v: u64 = env.storage().instance().get(&DataKey::PlatformRewardsClaimed).unwrap_or(0);
-    env.storage().instance().set(&DataKey::PlatformRewardsClaimed, &v.saturating_add(1));
+    let v: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::PlatformRewardsClaimed)
+        .unwrap_or(0);
+    env.storage()
+        .instance()
+        .set(&DataKey::PlatformRewardsClaimed, &v.saturating_add(1));
 }
 
 /// Add to the rewards-distributed counter.
 pub fn add_platform_rewards_distributed(env: &Env, amount: u128) {
-    let v: u128 = env.storage().instance().get(&DataKey::PlatformRewardsDistributed).unwrap_or(0);
-    env.storage().instance().set(&DataKey::PlatformRewardsDistributed, &v.saturating_add(amount));
+    let v: u128 = env
+        .storage()
+        .instance()
+        .get(&DataKey::PlatformRewardsDistributed)
+        .unwrap_or(0);
+    env.storage().instance().set(
+        &DataKey::PlatformRewardsDistributed,
+        &v.saturating_add(amount),
+    );
 }
 
 pub fn get_creator_stats(env: &Env, creator: &Address) -> CreatorStats {
@@ -1249,7 +1250,11 @@ pub fn has_dispute(env: &Env, quest_id: &Symbol, initiator: &Address) -> bool {
 }
 
 /// Retrieves a dispute by quest_id and initiator.
-pub fn get_dispute(env: &Env, quest_id: &Symbol, initiator: &Address) -> Result<crate::types::Dispute, Error> {
+pub fn get_dispute(
+    env: &Env,
+    quest_id: &Symbol,
+    initiator: &Address,
+) -> Result<crate::types::Dispute, Error> {
     env.storage()
         .instance()
         .get(&DataKey::Dispute(quest_id.clone(), initiator.clone()))
@@ -1257,10 +1262,16 @@ pub fn get_dispute(env: &Env, quest_id: &Symbol, initiator: &Address) -> Result<
 }
 
 /// Stores or updates a dispute record.
-pub fn set_dispute(env: &Env, quest_id: &Symbol, initiator: &Address, dispute: &crate::types::Dispute) {
-    env.storage()
-        .instance()
-        .set(&DataKey::Dispute(quest_id.clone(), initiator.clone()), dispute);
+pub fn set_dispute(
+    env: &Env,
+    quest_id: &Symbol,
+    initiator: &Address,
+    dispute: &crate::types::Dispute,
+) {
+    env.storage().instance().set(
+        &DataKey::Dispute(quest_id.clone(), initiator.clone()),
+        dispute,
+    );
 }
 
 /// Deletes a dispute record.
@@ -1280,7 +1291,11 @@ pub fn has_verifier_stake(env: &Env, quest_id: &Symbol, verifier: &Address) -> b
         .has(&DataKey::VerifierStake(quest_id.clone(), verifier.clone()))
 }
 
-pub fn get_verifier_stake(env: &Env, quest_id: &Symbol, verifier: &Address) -> Result<VerifierStake, Error> {
+pub fn get_verifier_stake(
+    env: &Env,
+    quest_id: &Symbol,
+    verifier: &Address,
+) -> Result<VerifierStake, Error> {
     env.storage()
         .instance()
         .get(&DataKey::VerifierStake(quest_id.clone(), verifier.clone()))
@@ -1288,9 +1303,10 @@ pub fn get_verifier_stake(env: &Env, quest_id: &Symbol, verifier: &Address) -> R
 }
 
 pub fn set_verifier_stake(env: &Env, quest_id: &Symbol, verifier: &Address, stake: &VerifierStake) {
-    env.storage()
-        .instance()
-        .set(&DataKey::VerifierStake(quest_id.clone(), verifier.clone()), stake);
+    env.storage().instance().set(
+        &DataKey::VerifierStake(quest_id.clone(), verifier.clone()),
+        stake,
+    );
 }
 
 //================================================================================
@@ -1402,25 +1418,6 @@ pub fn remove_creator_whitelist(env: &Env, address: &Address) {
         .remove(&DataKey::CreatorWhitelist(address.clone()));
 }
 
-pub fn get_level_thresholds(env: &Env) -> Vec<u64> {
-env.storage()
-    .instance()
-    .get(&DataKey::LevelThresholds)
-    .unwrap_or_else(|| {
-        // Default thresholds: 300, 600, 1000, 1500 (levels 2..5)
-        let mut v = Vec::new(env);
-        v.push_back(300u64);
-        v.push_back(600u64);
-        v.push_back(1000u64);
-        v.push_back(1500u64);
-        v
-    })
-}
-
-pub fn set_level_thresholds(env: &Env, thresholds: &Vec<u64>) {
-env.storage().instance().set(&DataKey::LevelThresholds, thresholds);
-}
-
 #[cfg(test)]
 mod layout_tests {
     use super::*;
@@ -1471,15 +1468,11 @@ mod layout_tests {
         "TokenDecimals",
         "BadgeType",
         "BadgeTypeIds",
-        "Arbitrator",
-        "ArbitratorPending",
-        "ArbitratorScheduledTime",
-        "LevelThresholds",
         "MinCreatorLevel",
         "CreatorWhitelist",
     ];
 
-    const EXPECTED_VARIANT_COUNT: usize = 48;
+    const EXPECTED_VARIANT_COUNT: usize = 44;
 
     /// One sample instance per `DataKey` variant for layout audits.
     fn all_data_keys(env: &Env) -> Vec<DataKey> {
@@ -1530,10 +1523,6 @@ mod layout_tests {
         keys.push_back(DataKey::TokenDecimals);
         keys.push_back(DataKey::BadgeType(badge_id.clone()));
         keys.push_back(DataKey::BadgeTypeIds);
-        keys.push_back(DataKey::Arbitrator);
-        keys.push_back(DataKey::ArbitratorPending);
-        keys.push_back(DataKey::ArbitratorScheduledTime);
-        keys.push_back(DataKey::LevelThresholds);
         keys.push_back(DataKey::MinCreatorLevel);
         keys.push_back(DataKey::CreatorWhitelist(addr.clone()));
         keys
@@ -1541,14 +1530,9 @@ mod layout_tests {
 
     #[test]
     fn data_key_variant_names_are_unique() {
-        for i in 0..VARIANT_NAMES.len() {
-            for j in (i + 1)..VARIANT_NAMES.len() {
-                assert_ne!(
-                    VARIANT_NAMES[i],
-                    VARIANT_NAMES[j],
-                    "duplicate DataKey variant name: {}",
-                    VARIANT_NAMES[i]
-                );
+        for (i, name_i) in VARIANT_NAMES.iter().enumerate() {
+            for name_j in VARIANT_NAMES.iter().skip(i + 1) {
+                assert_ne!(name_i, name_j, "duplicate DataKey variant name: {}", name_i);
             }
         }
         assert_eq!(VARIANT_NAMES.len(), EXPECTED_VARIANT_COUNT);
@@ -1593,26 +1577,36 @@ pub struct ClawbackPending {
 }
 
 pub fn has_clawback(env: &Env, quest_id: &Symbol, recipient: &Address) -> bool {
-    env.storage()
-        .instance()
-        .has(&DataKey::ClawbackPending(quest_id.clone(), recipient.clone()))
+    env.storage().instance().has(&DataKey::ClawbackPending(
+        quest_id.clone(),
+        recipient.clone(),
+    ))
 }
 
-pub fn get_clawback(env: &Env, quest_id: &Symbol, recipient: &Address) -> Result<ClawbackPending, Error> {
+pub fn get_clawback(
+    env: &Env,
+    quest_id: &Symbol,
+    recipient: &Address,
+) -> Result<ClawbackPending, Error> {
     env.storage()
         .instance()
-        .get(&DataKey::ClawbackPending(quest_id.clone(), recipient.clone()))
+        .get(&DataKey::ClawbackPending(
+            quest_id.clone(),
+            recipient.clone(),
+        ))
         .ok_or(Error::ClawbackNotFound)
 }
 
 pub fn set_clawback(env: &Env, quest_id: &Symbol, recipient: &Address, pending: &ClawbackPending) {
-    env.storage()
-        .instance()
-        .set(&DataKey::ClawbackPending(quest_id.clone(), recipient.clone()), pending);
+    env.storage().instance().set(
+        &DataKey::ClawbackPending(quest_id.clone(), recipient.clone()),
+        pending,
+    );
 }
 
 pub fn delete_clawback(env: &Env, quest_id: &Symbol, recipient: &Address) {
-    env.storage()
-        .instance()
-        .remove(&DataKey::ClawbackPending(quest_id.clone(), recipient.clone()));
+    env.storage().instance().remove(&DataKey::ClawbackPending(
+        quest_id.clone(),
+        recipient.clone(),
+    ));
 }

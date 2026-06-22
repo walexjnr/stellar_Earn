@@ -43,15 +43,6 @@ db-path = "~/.cargo/advisory-db"
 # The url(s) of the advisory databases to use
 db-urls = ["https://github.com/rustsec/advisory-db"]
 
-# Severity threshold: advisories below this level are silently allowed.
-# Options: "none" | "low" | "medium" | "high" | "critical"
-# Policy: medium and above are subject to the `vulnerability` lint level.
-severity-threshold = "medium"
-
-# Lint level for security vulnerabilities at or above severity-threshold.
-# "deny" means any unexcepted advisory at medium+ severity will fail CI.
-vulnerability = "deny"
-
 # Scope for crates that are no longer actively maintained.
 # Valid options: "all" | "workspace" | "transitive" | "none"
 # (CI uses this field to determine which crates to consider unmaintained.)
@@ -60,9 +51,6 @@ unmaintained = "all"
 # Lint level for crates yanked from crates.io.
 # Yanked versions should be upgraded but are not always a security issue.
 yanked = "warn"
-
-# Lint level for security notices (informational, not vulnerabilities).
-notice = "warn"
 
 # --- Exceptions List ----------------------------------------------------------
 # Advisory IDs listed here are explicitly ignored.
@@ -95,20 +83,10 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "Unicode-DFS-2016",
+    "Unicode-3.0",
     "CC0-1.0",
     "MPL-2.0",
 ]
-# List of explicitly disallowed licenses
-deny = [
-    "GPL-2.0",
-    "GPL-3.0",
-    "AGPL-1.0",
-    "AGPL-3.0",
-]
-# Lint level for licenses which have not been explicitly allowed or denied
-unlicensed = "deny"
-# Lint level for licenses considered copyleft
-copyleft = "warn"
 # Lint level for confidence in the license detection
 confidence-threshold = 0.8
 # Per-crate license exceptions
