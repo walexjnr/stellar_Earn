@@ -15,6 +15,7 @@ const REQUIRED_ENV_VARS = {
     description: 'Backend API base URL',
     example: 'http://localhost:3001',
     required: true,
+    default: 'http://localhost:3000',
   },
 } as const;
 
@@ -124,8 +125,8 @@ function validateEnvVar(
 ): ValidationError | null {
   const value = readEnvValue(name);
 
-  // Check if required variable is missing
-  if (config.required && !value) {
+  // Check if required variable is missing and has no default
+  if (config.required && !value && !config.default) {
     return {
       variable: name,
       description: config.description,
@@ -239,13 +240,16 @@ export function getEnv(
  */
 export function getRequiredEnv(name: keyof typeof REQUIRED_ENV_VARS): string {
   const value = readEnvValue(name);
-  if (!value) {
-    throw new Error(
-      `Required environment variable ${name} is not set. ` +
-        `Please check your .env.local file.`
-    );
-  }
-  return value;
+  if (value) return value;
+
+  // If there's a default value, use it as fallback
+  const config = REQUIRED_ENV_VARS[name];
+  if (config.default) return config.default;
+
+  throw new Error(
+    `Required environment variable ${name} is not set. ` +
+      `Please check your .env.local file.`
+  );
 }
 
 /**
